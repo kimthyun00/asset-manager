@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Beginner Python Portfolio Dashboard
 
 A simple Streamlit app for entering investments and viewing:
@@ -68,3 +69,6 @@ a file when the app closes.
 - `app.py` contains the dashboard and calculations.
 - `requirements.txt` lists the Python packages to install.
 - `.vscode/launch.json` lets you start the app with the VS Code debugger.
+=======
+# asset-manager
+>>>>>>> 6cd3443ceba859a8f9b46eb0b58f4dd0ec469fde

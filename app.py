@@ -1,4 +1,4 @@
-"""태현의 투자 대시보드 v6 - 모바일 다이어트 버전."""
+"""자산관리 앱 v7 - 모바일 UI + 한국주식 + 크립토 지원."""
 
 import json
 from datetime import date
@@ -18,6 +18,16 @@ st.set_page_config(page_title="내 자산", page_icon="💰", layout="wide")
 PORTFOLIO_FILE = Path("portfolio.json")
 HISTORY_FILE = Path("history.json")
 DEFAULT_EXCHANGE_RATE = 1370.0
+
+CRYPTO_TICKER_MAP = {
+    "BTC": "BTC-USD",
+    "ETH": "ETH-USD",
+    "SOL": "SOL-USD",
+    "XRP": "XRP-USD",
+    "DOGE": "DOGE-USD",
+    "ADA": "ADA-USD",
+    "BNB": "BNB-USD",
+}
 
 
 st.markdown(
@@ -171,6 +181,23 @@ def valid_price(value: Any) -> float | None:
     except Exception:
         pass
     return None
+
+
+def normalize_market_ticker(ticker: str, asset_type: str = "주식/ETF") -> str:
+    ticker = ticker.strip().upper()
+
+    if ticker in ["CASH_USD", "CASH_KRW"]:
+        return ticker
+
+    if asset_type == "크립토":
+        return CRYPTO_TICKER_MAP.get(ticker, f"{ticker}-USD")
+
+    if asset_type == "한국주식":
+        if ticker.isdigit():
+            return f"{ticker}.KS"
+        return ticker
+
+    return ticker
 
 
 def normalize_holding(raw: dict) -> dict | None:
@@ -355,7 +382,7 @@ def get_from_yahoo_chart(ticker: str) -> float | None:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_current_price(ticker: str) -> float | None:
+def get_current_price(ticker: str, asset_type: str = "주식/ETF") -> float | None:
     ticker = ticker.strip().upper()
 
     if not ticker:
@@ -364,8 +391,10 @@ def get_current_price(ticker: str) -> float | None:
     if ticker in ["CASH_USD", "CASH_KRW"]:
         return 1.0
 
+    query_ticker = normalize_market_ticker(ticker, asset_type)
+
     for getter in [get_from_fast_info, get_from_history, get_from_yahoo_chart]:
-        price = getter(ticker)
+        price = getter(query_ticker)
         if price:
             return price
 
@@ -375,7 +404,7 @@ def get_current_price(ticker: str) -> float | None:
 @st.cache_data(ttl=300, show_spinner=False)
 def get_auto_usd_krw_rate() -> float:
     for ticker in ["USDKRW=X", "KRW=X"]:
-        rate = get_current_price(ticker)
+        rate = get_current_price(ticker, "주식/ETF")
         if rate and 800 <= rate <= 2500:
             return rate
     return DEFAULT_EXCHANGE_RATE
@@ -388,13 +417,14 @@ def refresh_prices(holdings: list[dict]) -> tuple[list[dict], list[str]]:
     for holding in holdings:
         new_holding = holding.copy()
         ticker = new_holding["종목"]
+        asset_type = new_holding.get("자산구분", "주식/ETF")
 
         if ticker in ["CASH_USD", "CASH_KRW"]:
             new_holding["현재가"] = 1.0
             updated_holdings.append(new_holding)
             continue
 
-        price = get_current_price(ticker)
+        price = get_current_price(ticker, asset_type)
 
         if price:
             new_holding["현재가"] = price
@@ -440,6 +470,16 @@ def calculate_portfolio(holdings: list[dict], exchange_rate: float) -> pd.DataFr
             buy_price = 1.0
             current_price = 1.0
 
+        elif currency == "KRW":
+            cost_krw = quantity * buy_price
+            value_krw = quantity * current_price
+            profit_krw = value_krw - cost_krw
+            return_pct = profit_krw / cost_krw * 100 if cost_krw > 0 else 0
+
+            cost_usd = cost_krw / exchange_rate if exchange_rate > 0 else 0
+            value_usd = value_krw / exchange_rate if exchange_rate > 0 else 0
+            profit_usd = profit_krw / exchange_rate if exchange_rate > 0 else 0
+
         else:
             cost_usd = quantity * buy_price
             value_usd = quantity * current_price
@@ -482,6 +522,12 @@ def money_krw(value: float) -> str:
 
 def money_usd(value: float) -> str:
     return f"${value:,.2f}"
+
+
+def price_label(value: float, currency: str) -> str:
+    if currency == "KRW":
+        return money_krw(value)
+    return money_usd(value)
 
 
 if "holdings" not in st.session_state:
@@ -598,8 +644,8 @@ else:
             width="stretch",
             column_config={
                 "수량": st.column_config.NumberColumn(format="%.4f"),
-                "평균단가": st.column_config.NumberColumn(format="$%.2f"),
-                "현재가": st.column_config.NumberColumn(format="$%.2f"),
+                "평균단가": st.column_config.NumberColumn(format="%.2f"),
+                "현재가": st.column_config.NumberColumn(format="%.2f"),
                 "매수금액($)": st.column_config.NumberColumn(format="$%.2f"),
                 "평가금액($)": st.column_config.NumberColumn(format="$%.2f"),
                 "손익($)": st.column_config.NumberColumn(format="$%.2f"),
@@ -674,10 +720,10 @@ with st.expander("➕ 투자 추가"):
 
         add_type = st.selectbox(
             "추가할 자산 종류",
-            ["주식/ETF", "달러 현금", "원화 현금"],
+            ["미국주식/ETF", "한국주식", "크립토", "달러 현금", "원화 현금"],
         )
 
-        if add_type == "주식/ETF":
+        if add_type == "미국주식/ETF":
             col1, col2, col3, col4 = st.columns(4)
 
             with col1:
@@ -697,11 +743,64 @@ with st.expander("➕ 투자 추가"):
                     help="자동 조회가 실패할 때만 사용하세요.",
                 )
 
+            asset_type_to_save = "주식/ETF"
+            currency_to_save = "USD"
+
+        elif add_type == "한국주식":
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                ticker = st.text_input("종목 코드", placeholder="005930 또는 222800.KQ").strip().upper()
+                st.caption("코스피 6자리만 입력하면 .KS 자동 적용. 코스닥은 222800.KQ처럼 입력.")
+
+            with col2:
+                quantity = st.number_input("수량", min_value=0.0, step=1.0)
+
+            with col3:
+                buy_price = st.number_input("평균단가 (₩)", min_value=0.0, step=100.0)
+
+            with col4:
+                manual_current_price = st.number_input(
+                    "현재가 수동 입력 (₩)",
+                    min_value=0.0,
+                    step=100.0,
+                    help="자동 조회가 실패할 때만 사용하세요.",
+                )
+
+            asset_type_to_save = "한국주식"
+            currency_to_save = "KRW"
+
+        elif add_type == "크립토":
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                ticker = st.text_input("코인 티커", placeholder="BTC").strip().upper()
+                st.caption("BTC, ETH, SOL 등. 달러 기준으로 계산.")
+
+            with col2:
+                quantity = st.number_input("수량", min_value=0.0, step=0.001, format="%.8f")
+
+            with col3:
+                buy_price = st.number_input("평균단가 ($)", min_value=0.0, step=1.0)
+
+            with col4:
+                manual_current_price = st.number_input(
+                    "현재가 수동 입력 ($)",
+                    min_value=0.0,
+                    step=1.0,
+                    help="자동 조회가 실패할 때만 사용하세요.",
+                )
+
+            asset_type_to_save = "크립토"
+            currency_to_save = "USD"
+
         elif add_type == "달러 현금":
             ticker = "CASH_USD"
             quantity = st.number_input("달러 현금 금액 ($)", min_value=0.0, step=100.0)
             buy_price = 1.0
             manual_current_price = 1.0
+            asset_type_to_save = "현금"
+            currency_to_save = "USD"
 
         else:
             ticker = "CASH_KRW"
@@ -709,17 +808,19 @@ with st.expander("➕ 투자 추가"):
             quantity = krw_cash / exchange_rate if exchange_rate > 0 else 0.0
             buy_price = 1.0
             manual_current_price = 1.0
+            asset_type_to_save = "현금"
+            currency_to_save = "KRW"
 
         add_clicked = st.form_submit_button("포트폴리오 추가", type="primary")
 
         if add_clicked:
-            if add_type == "주식/ETF":
+            if add_type in ["미국주식/ETF", "한국주식", "크립토"]:
                 if not ticker:
-                    st.error("종목 티커를 입력하세요.")
+                    st.error("티커 또는 종목 코드를 입력하세요.")
                 elif quantity <= 0 or buy_price <= 0:
                     st.error("수량과 평균단가는 0보다 커야 합니다.")
                 else:
-                    current_price = get_current_price(ticker)
+                    current_price = get_current_price(ticker, asset_type_to_save)
 
                     if current_price is None and manual_current_price > 0:
                         current_price = manual_current_price
@@ -733,8 +834,8 @@ with st.expander("➕ 투자 추가"):
                         st.session_state.holdings.append(
                             {
                                 "종목": ticker,
-                                "자산구분": "주식/ETF",
-                                "통화": "USD",
+                                "자산구분": asset_type_to_save,
+                                "통화": currency_to_save,
                                 "수량": quantity,
                                 "평균단가": buy_price,
                                 "현재가": current_price,
@@ -744,7 +845,7 @@ with st.expander("➕ 투자 추가"):
                         save_holdings(st.session_state.holdings)
                         st.success(
                             f"{ticker}를 포트폴리오에 추가했습니다. "
-                            f"적용 현재가: ${current_price:,.2f}"
+                            f"적용 현재가: {price_label(current_price, currency_to_save)}"
                         )
                         st.rerun()
 

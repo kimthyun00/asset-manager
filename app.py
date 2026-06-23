@@ -347,12 +347,11 @@ if "holdings" not in st.session_state:
     st.session_state.holdings = load_holdings()
 
 
-st.title("📊 태현의 투자 대시보드")
-st.write("주식, ETF, 달러 현금, 원화 현금, 포트 가치 추이를 한 번에 관리합니다.")
+st.title("💰 내 자산")
 
-col_refresh, col_note = st.columns([1, 4])
-with col_refresh:
-    refresh_clicked = st.button("현재가/환율 새로고침")
+st.caption("총자산 · 수익률 · 비중 관리")
+
+refresh_clicked = st.button("🔄 현재가 새로고침")
 
 if refresh_clicked:
     st.cache_data.clear()

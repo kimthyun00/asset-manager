@@ -1,4 +1,4 @@
-"""태현의 포트폴리오 대시보드 v5."""
+"""태현의 투자 대시보드 v6 - 모바일 다이어트 버전."""
 
 import json
 from datetime import date
@@ -13,11 +13,140 @@ import streamlit as st
 import yfinance as yf
 
 
-st.set_page_config(page_title="태현의 투자 대시보드", page_icon="📊", layout="wide")
+st.set_page_config(page_title="내 자산", page_icon="💰", layout="wide")
 
 PORTFOLIO_FILE = Path("portfolio.json")
 HISTORY_FILE = Path("history.json")
 DEFAULT_EXCHANGE_RATE = 1370.0
+
+
+st.markdown(
+    """
+    <style>
+    .block-container {
+        padding-top: 1.2rem;
+        padding-bottom: 2rem;
+        max-width: 980px;
+    }
+
+    div[data-testid="stMetric"] {
+        background: #ffffff;
+        border: 1px solid #eeeeee;
+        padding: 16px 16px;
+        border-radius: 18px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+    }
+
+    .main-card {
+        background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
+        color: white;
+        padding: 24px 22px;
+        border-radius: 24px;
+        margin: 12px 0 18px 0;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    }
+
+    .main-card .label {
+        font-size: 15px;
+        color: #d1d5db;
+        margin-bottom: 8px;
+    }
+
+    .main-card .value {
+        font-size: 36px;
+        font-weight: 800;
+        letter-spacing: -1px;
+        margin-bottom: 8px;
+    }
+
+    .main-card .profit {
+        font-size: 18px;
+        font-weight: 700;
+        color: #86efac;
+    }
+
+    .section-title {
+        font-size: 23px;
+        font-weight: 800;
+        margin: 28px 0 12px 0;
+    }
+
+    .holding-card {
+        background: #ffffff;
+        border: 1px solid #eeeeee;
+        padding: 16px 16px;
+        border-radius: 20px;
+        margin-bottom: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+    }
+
+    .holding-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+
+    .ticker {
+        font-size: 20px;
+        font-weight: 800;
+    }
+
+    .weight {
+        font-size: 15px;
+        font-weight: 700;
+        color: #6b7280;
+    }
+
+    .holding-value {
+        font-size: 21px;
+        font-weight: 800;
+        margin-bottom: 4px;
+    }
+
+    .holding-sub {
+        font-size: 14px;
+        color: #6b7280;
+    }
+
+    .positive {
+        color: #16a34a;
+        font-weight: 800;
+    }
+
+    .negative {
+        color: #dc2626;
+        font-weight: 800;
+    }
+
+    @media (max-width: 768px) {
+        .block-container {
+            padding-left: 1rem;
+            padding-right: 1rem;
+            padding-top: 0.8rem;
+        }
+
+        .main-card {
+            padding: 22px 18px;
+            border-radius: 22px;
+        }
+
+        .main-card .value {
+            font-size: 31px;
+        }
+
+        .main-card .profit {
+            font-size: 16px;
+        }
+
+        h1 {
+            font-size: 2rem !important;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 def first_value(data: dict, *keys: str, default: Any = None) -> Any:
@@ -343,12 +472,23 @@ def calculate_portfolio(holdings: list[dict], exchange_rate: float) -> pd.DataFr
     return portfolio
 
 
+def profit_class(value: float) -> str:
+    return "positive" if value >= 0 else "negative"
+
+
+def money_krw(value: float) -> str:
+    return f"₩{value:,.0f}"
+
+
+def money_usd(value: float) -> str:
+    return f"${value:,.2f}"
+
+
 if "holdings" not in st.session_state:
     st.session_state.holdings = load_holdings()
 
 
 st.title("💰 내 자산")
-
 st.caption("총자산 · 수익률 · 비중 관리")
 
 refresh_clicked = st.button("🔄 현재가 새로고침")
@@ -361,138 +501,26 @@ if refresh_clicked:
     if failed:
         st.warning(f"현재가를 못 불러온 종목: {', '.join(failed)}")
     else:
-        st.success("현재가와 환율을 새로 불러왔습니다.")
+        st.success("현재가를 새로 불러왔습니다.")
+
 
 auto_exchange_rate = get_auto_usd_krw_rate()
 
-exchange_rate = st.number_input(
-    "적용 환율",
-    min_value=0.0,
-    value=float(round(auto_exchange_rate, 2)),
-    step=1.0,
-)
-
-st.caption("환율이 이상하면 위 숫자를 직접 수정하세요. 예: 1380")
-
-with st.form("add_holding", clear_on_submit=True):
-    st.subheader("투자 추가")
-
-    add_type = st.selectbox(
-        "추가할 자산 종류",
-        ["주식/ETF", "달러 현금", "원화 현금"],
+with st.expander("💱 환율 설정"):
+    exchange_rate = st.number_input(
+        "적용 환율",
+        min_value=0.0,
+        value=float(round(auto_exchange_rate, 2)),
+        step=1.0,
     )
-
-    if add_type == "주식/ETF":
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            ticker = st.text_input("종목 티커", placeholder="NVDA").strip().upper()
-
-        with col2:
-            quantity = st.number_input("수량", min_value=0.0, step=1.0)
-
-        with col3:
-            buy_price = st.number_input("평균단가 ($)", min_value=0.0, step=0.01)
-
-        with col4:
-            manual_current_price = st.number_input(
-                "현재가 수동 입력",
-                min_value=0.0,
-                step=0.01,
-                help="자동 조회가 실패할 때만 사용하세요.",
-            )
-
-    elif add_type == "달러 현금":
-        ticker = "CASH_USD"
-        quantity = st.number_input("달러 현금 금액 ($)", min_value=0.0, step=100.0)
-        buy_price = 1.0
-        manual_current_price = 1.0
-
-    else:
-        ticker = "CASH_KRW"
-        krw_cash = st.number_input("원화 현금 금액 (₩)", min_value=0.0, step=10000.0)
-        quantity = krw_cash / exchange_rate if exchange_rate > 0 else 0.0
-        buy_price = 1.0
-        manual_current_price = 1.0
-
-    add_clicked = st.form_submit_button("포트폴리오 추가", type="primary")
-
-    if add_clicked:
-        if add_type == "주식/ETF":
-            if not ticker:
-                st.error("종목 티커를 입력하세요.")
-            elif quantity <= 0 or buy_price <= 0:
-                st.error("수량과 평균단가는 0보다 커야 합니다.")
-            else:
-                current_price = get_current_price(ticker)
-
-                if current_price is None and manual_current_price > 0:
-                    current_price = manual_current_price
-
-                if current_price is None:
-                    st.error(
-                        f"{ticker}의 현재가를 불러오지 못했습니다. "
-                        "티커를 확인하거나 현재가를 수동 입력하세요."
-                    )
-                else:
-                    st.session_state.holdings.append(
-                        {
-                            "종목": ticker,
-                            "자산구분": "주식/ETF",
-                            "통화": "USD",
-                            "수량": quantity,
-                            "평균단가": buy_price,
-                            "현재가": current_price,
-                            "원화금액": 0.0,
-                        }
-                    )
-                    save_holdings(st.session_state.holdings)
-                    st.success(
-                        f"{ticker}를 포트폴리오에 추가했습니다. "
-                        f"적용 현재가: ${current_price:,.2f}"
-                    )
-
-        elif add_type == "달러 현금":
-            if quantity <= 0:
-                st.error("달러 현금 금액은 0보다 커야 합니다.")
-            else:
-                st.session_state.holdings.append(
-                    {
-                        "종목": "CASH_USD",
-                        "자산구분": "현금",
-                        "통화": "USD",
-                        "수량": quantity,
-                        "평균단가": 1.0,
-                        "현재가": 1.0,
-                        "원화금액": 0.0,
-                    }
-                )
-                save_holdings(st.session_state.holdings)
-                st.success(f"달러 현금 ${quantity:,.2f}를 추가했습니다.")
-
-        else:
-            if krw_cash <= 0:
-                st.error("원화 현금 금액은 0보다 커야 합니다.")
-            else:
-                st.session_state.holdings.append(
-                    {
-                        "종목": "CASH_KRW",
-                        "자산구분": "현금",
-                        "통화": "KRW",
-                        "수량": quantity,
-                        "평균단가": 1.0,
-                        "현재가": 1.0,
-                        "원화금액": krw_cash,
-                    }
-                )
-                save_holdings(st.session_state.holdings)
-                st.success(f"원화 현금 ₩{krw_cash:,.0f}를 추가했습니다.")
+    st.caption("환율이 이상하면 숫자를 직접 수정하세요. 예: 1380")
 
 
 portfolio = calculate_portfolio(st.session_state.holdings, exchange_rate)
 
+
 if portfolio.empty:
-    st.info("포트폴리오가 비어 있습니다. 시작하려면 종목을 추가하세요.")
+    st.info("포트폴리오가 비어 있습니다. 아래에서 종목을 추가하세요.")
 else:
     total_cost = portfolio["매수금액($)"].sum()
     total_value = portfolio["평가금액($)"].sum()
@@ -502,112 +530,287 @@ else:
     total_value_krw = portfolio["평가금액(원)"].sum()
     total_profit_krw = portfolio["손익(원)"].sum()
 
-    st.subheader("포트폴리오 요약")
+    cash_like = portfolio[portfolio["종목"].isin(["CASH_USD", "CASH_KRW", "SGOV"])]["평가금액($)"].sum()
+    cash_like_pct = cash_like / total_value * 100 if total_value > 0 else 0
 
-    metric1, metric2, metric3, metric4 = st.columns(4)
-    metric1.metric("총 평가금액($)", f"${total_value:,.2f}")
-    metric2.metric("총 평가금액(원)", f"₩{total_value_krw:,.0f}")
-    metric3.metric("총 손익", f"${total_profit:,.2f}", f"₩{total_profit_krw:,.0f}")
-    metric4.metric("총 수익률", f"{total_return:,.2f}%")
+    profit_sign = "+" if total_profit_krw >= 0 else ""
+    return_sign = "+" if total_return >= 0 else ""
+
+    st.markdown(
+        f"""
+        <div class="main-card">
+            <div class="label">총자산</div>
+            <div class="value">{money_krw(total_value_krw)}</div>
+            <div class="profit">{profit_sign}{money_krw(total_profit_krw)} · {return_sign}{total_return:,.2f}%</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("달러 기준", money_usd(total_value))
+    m2.metric("현금+단기채", f"{cash_like_pct:,.1f}%")
+    m3.metric("보유 종목", f"{len(portfolio)}개")
 
     if st.button("오늘 가치 저장"):
         save_today_value(total_value, total_value_krw, exchange_rate)
         st.success("오늘 포트폴리오 가치를 저장했습니다.")
 
-    st.subheader("보유 종목")
+    st.markdown('<div class="section-title">보유 자산</div>', unsafe_allow_html=True)
 
-    st.dataframe(
-        portfolio,
-        hide_index=True,
-        width="stretch",
-        column_config={
-            "수량": st.column_config.NumberColumn(format="%.4f"),
-            "평균단가": st.column_config.NumberColumn(format="$%.2f"),
-            "현재가": st.column_config.NumberColumn(format="$%.2f"),
-            "매수금액($)": st.column_config.NumberColumn(format="$%.2f"),
-            "평가금액($)": st.column_config.NumberColumn(format="$%.2f"),
-            "손익($)": st.column_config.NumberColumn(format="$%.2f"),
-            "수익률 %": st.column_config.NumberColumn(format="%.2f%%"),
-            "평가금액(원)": st.column_config.NumberColumn(format="₩%.0f"),
-            "손익(원)": st.column_config.NumberColumn(format="₩%.0f"),
-            "비중 %": st.column_config.NumberColumn(format="%.2f%%"),
-        },
-    )
+    card_data = portfolio.sort_values("평가금액($)", ascending=False).reset_index(drop=True)
 
-    st.subheader("포트폴리오 비중")
+    for _, row in card_data.iterrows():
+        ticker = row["종목"]
+        value_krw = row["평가금액(원)"]
+        value_usd = row["평가금액($)"]
+        profit_usd = row["손익($)"]
+        profit_krw = row["손익(원)"]
+        return_pct = row["수익률 %"]
+        weight = row["비중 %"]
 
-    pie_data = portfolio[portfolio["평가금액($)"] > 0].copy()
+        sign = "+" if profit_krw >= 0 else ""
+        return_sign = "+" if return_pct >= 0 else ""
 
-    fig = px.pie(
-        pie_data,
-        names="종목",
-        values="평가금액($)",
-        hole=0.35,
-    )
-
-    fig.update_traces(
-        textposition="inside",
-        textinfo="percent+label",
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.subheader("포트폴리오 가치 추이")
-
-    history = load_history()
-
-    if not history:
-        st.info("아직 저장된 가치 기록이 없습니다. 위의 '오늘 가치 저장' 버튼을 눌러 시작하세요.")
-    else:
-        history_df = pd.DataFrame(history)
-        history_df["날짜"] = pd.to_datetime(history_df["날짜"])
-
-        fig_history = px.line(
-            history_df,
-            x="날짜",
-            y="총 평가금액(원)",
-            markers=True,
+        st.markdown(
+            f"""
+            <div class="holding-card">
+                <div class="holding-top">
+                    <div class="ticker">{ticker}</div>
+                    <div class="weight">{weight:,.2f}%</div>
+                </div>
+                <div class="holding-value">{money_krw(value_krw)}</div>
+                <div class="holding-sub">{money_usd(value_usd)} · 수익률 
+                    <span class="{profit_class(profit_krw)}">{return_sign}{return_pct:,.2f}%</span>
+                </div>
+                <div class="holding-sub">손익 
+                    <span class="{profit_class(profit_krw)}">{sign}{money_krw(profit_krw)} / {sign}{money_usd(profit_usd)}</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
-        fig_history.update_layout(
-            yaxis_title="총 평가금액(원)",
-            xaxis_title="날짜",
-        )
-
-        st.plotly_chart(fig_history, use_container_width=True)
-
+    with st.expander("📋 상세 표 보기"):
         st.dataframe(
-            history_df.sort_values("날짜", ascending=False),
+            portfolio,
             hide_index=True,
             width="stretch",
             column_config={
-                "총 평가금액($)": st.column_config.NumberColumn(format="$%.2f"),
-                "총 평가금액(원)": st.column_config.NumberColumn(format="₩%.0f"),
-                "적용 환율": st.column_config.NumberColumn(format="%.2f"),
+                "수량": st.column_config.NumberColumn(format="%.4f"),
+                "평균단가": st.column_config.NumberColumn(format="$%.2f"),
+                "현재가": st.column_config.NumberColumn(format="$%.2f"),
+                "매수금액($)": st.column_config.NumberColumn(format="$%.2f"),
+                "평가금액($)": st.column_config.NumberColumn(format="$%.2f"),
+                "손익($)": st.column_config.NumberColumn(format="$%.2f"),
+                "수익률 %": st.column_config.NumberColumn(format="%.2f%%"),
+                "평가금액(원)": st.column_config.NumberColumn(format="₩%.0f"),
+                "손익(원)": st.column_config.NumberColumn(format="₩%.0f"),
+                "비중 %": st.column_config.NumberColumn(format="%.2f%%"),
             },
         )
 
-    action1, action2 = st.columns(2)
+    with st.expander("🥧 포트폴리오 비중"):
+        pie_data = portfolio[portfolio["평가금액($)"] > 0].copy()
 
-    with action1:
-        row_to_remove = st.selectbox(
-            "삭제할 종목 선택",
-            options=range(len(portfolio)),
-            format_func=lambda row: f"{row + 1}번: {portfolio.iloc[row]['종목']}",
+        fig = px.pie(
+            pie_data,
+            names="종목",
+            values="평가금액($)",
+            hole=0.45,
         )
 
-        if st.button("선택 종목 삭제"):
-            st.session_state.holdings.pop(row_to_remove)
-            save_holdings(st.session_state.holdings)
-            st.rerun()
+        fig.update_traces(
+            textposition="inside",
+            textinfo="percent+label",
+        )
 
-    with action2:
-        st.write("")
-        st.write("")
+        fig.update_layout(
+            margin=dict(l=10, r=10, t=10, b=10),
+            showlegend=True,
+        )
 
-        if st.button("포트폴리오 초기화"):
-            st.session_state.holdings = []
-            save_holdings(st.session_state.holdings)
-            st.rerun()
+        st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander("📈 가치 추이"):
+        history = load_history()
+
+        if not history:
+            st.info("아직 저장된 가치 기록이 없습니다. '오늘 가치 저장' 버튼을 눌러 시작하세요.")
+        else:
+            history_df = pd.DataFrame(history)
+            history_df["날짜"] = pd.to_datetime(history_df["날짜"])
+
+            fig_history = px.line(
+                history_df,
+                x="날짜",
+                y="총 평가금액(원)",
+                markers=True,
+            )
+
+            fig_history.update_layout(
+                yaxis_title="총 평가금액(원)",
+                xaxis_title="날짜",
+                margin=dict(l=10, r=10, t=10, b=10),
+            )
+
+            st.plotly_chart(fig_history, use_container_width=True)
+
+            st.dataframe(
+                history_df.sort_values("날짜", ascending=False),
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "총 평가금액($)": st.column_config.NumberColumn(format="$%.2f"),
+                    "총 평가금액(원)": st.column_config.NumberColumn(format="₩%.0f"),
+                    "적용 환율": st.column_config.NumberColumn(format="%.2f"),
+                },
+            )
+
+
+with st.expander("➕ 투자 추가"):
+    with st.form("add_holding", clear_on_submit=True):
+        st.subheader("투자 추가")
+
+        add_type = st.selectbox(
+            "추가할 자산 종류",
+            ["주식/ETF", "달러 현금", "원화 현금"],
+        )
+
+        if add_type == "주식/ETF":
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                ticker = st.text_input("종목 티커", placeholder="NVDA").strip().upper()
+
+            with col2:
+                quantity = st.number_input("수량", min_value=0.0, step=1.0)
+
+            with col3:
+                buy_price = st.number_input("평균단가 ($)", min_value=0.0, step=0.01)
+
+            with col4:
+                manual_current_price = st.number_input(
+                    "현재가 수동 입력",
+                    min_value=0.0,
+                    step=0.01,
+                    help="자동 조회가 실패할 때만 사용하세요.",
+                )
+
+        elif add_type == "달러 현금":
+            ticker = "CASH_USD"
+            quantity = st.number_input("달러 현금 금액 ($)", min_value=0.0, step=100.0)
+            buy_price = 1.0
+            manual_current_price = 1.0
+
+        else:
+            ticker = "CASH_KRW"
+            krw_cash = st.number_input("원화 현금 금액 (₩)", min_value=0.0, step=10000.0)
+            quantity = krw_cash / exchange_rate if exchange_rate > 0 else 0.0
+            buy_price = 1.0
+            manual_current_price = 1.0
+
+        add_clicked = st.form_submit_button("포트폴리오 추가", type="primary")
+
+        if add_clicked:
+            if add_type == "주식/ETF":
+                if not ticker:
+                    st.error("종목 티커를 입력하세요.")
+                elif quantity <= 0 or buy_price <= 0:
+                    st.error("수량과 평균단가는 0보다 커야 합니다.")
+                else:
+                    current_price = get_current_price(ticker)
+
+                    if current_price is None and manual_current_price > 0:
+                        current_price = manual_current_price
+
+                    if current_price is None:
+                        st.error(
+                            f"{ticker}의 현재가를 불러오지 못했습니다. "
+                            "티커를 확인하거나 현재가를 수동 입력하세요."
+                        )
+                    else:
+                        st.session_state.holdings.append(
+                            {
+                                "종목": ticker,
+                                "자산구분": "주식/ETF",
+                                "통화": "USD",
+                                "수량": quantity,
+                                "평균단가": buy_price,
+                                "현재가": current_price,
+                                "원화금액": 0.0,
+                            }
+                        )
+                        save_holdings(st.session_state.holdings)
+                        st.success(
+                            f"{ticker}를 포트폴리오에 추가했습니다. "
+                            f"적용 현재가: ${current_price:,.2f}"
+                        )
+                        st.rerun()
+
+            elif add_type == "달러 현금":
+                if quantity <= 0:
+                    st.error("달러 현금 금액은 0보다 커야 합니다.")
+                else:
+                    st.session_state.holdings.append(
+                        {
+                            "종목": "CASH_USD",
+                            "자산구분": "현금",
+                            "통화": "USD",
+                            "수량": quantity,
+                            "평균단가": 1.0,
+                            "현재가": 1.0,
+                            "원화금액": 0.0,
+                        }
+                    )
+                    save_holdings(st.session_state.holdings)
+                    st.success(f"달러 현금 ${quantity:,.2f}를 추가했습니다.")
+                    st.rerun()
+
+            else:
+                if krw_cash <= 0:
+                    st.error("원화 현금 금액은 0보다 커야 합니다.")
+                else:
+                    st.session_state.holdings.append(
+                        {
+                            "종목": "CASH_KRW",
+                            "자산구분": "현금",
+                            "통화": "KRW",
+                            "수량": quantity,
+                            "평균단가": 1.0,
+                            "현재가": 1.0,
+                            "원화금액": krw_cash,
+                        }
+                    )
+                    save_holdings(st.session_state.holdings)
+                    st.success(f"원화 현금 ₩{krw_cash:,.0f}를 추가했습니다.")
+                    st.rerun()
+
+
+if not portfolio.empty:
+    with st.expander("⚙️ 관리"):
+        action1, action2 = st.columns(2)
+
+        with action1:
+            row_to_remove = st.selectbox(
+                "삭제할 종목 선택",
+                options=range(len(portfolio)),
+                format_func=lambda row: f"{row + 1}번: {portfolio.iloc[row]['종목']}",
+            )
+
+            if st.button("선택 종목 삭제"):
+                st.session_state.holdings.pop(row_to_remove)
+                save_holdings(st.session_state.holdings)
+                st.rerun()
+
+        with action2:
+            st.write("")
+            st.write("")
+
+            if st.button("포트폴리오 초기화"):
+                st.session_state.holdings = []
+                save_holdings(st.session_state.holdings)
+                st.rerun()
+
 
 st.caption("포트폴리오는 portfolio.json 파일에 저장되고, 가치 추이는 history.json 파일에 저장됩니다.")
